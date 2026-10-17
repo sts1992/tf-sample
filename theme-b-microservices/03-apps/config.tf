@@ -3,10 +3,10 @@ locals {
     ui = {
       image = "ui", health = "/actuator/health/readiness", memory = "512Mi", cpu = "256m"
       env = {
-        RETAIL_UI_ENDPOINTS_CATALOG  = "http://catalog"
-        RETAIL_UI_ENDPOINTS_CARTS    = "http://carts"
-        RETAIL_UI_ENDPOINTS_CHECKOUT = "http://checkout"
-        RETAIL_UI_ENDPOINTS_ORDERS   = "http://orders"
+        RETAIL_UI_ENDPOINTS_CATALOG  = "http://catalog:8080"
+        RETAIL_UI_ENDPOINTS_CARTS    = "http://carts:8080"
+        RETAIL_UI_ENDPOINTS_CHECKOUT = "http://checkout:8080"
+        RETAIL_UI_ENDPOINTS_ORDERS   = "http://orders:8080"
         RETAIL_UI_SEARCH_ENABLED     = "false"
         JAVA_OPTS                    = "-XX:MaxRAMPercentage=75.0"
       }
@@ -33,7 +33,7 @@ locals {
       env = {
         RETAIL_CHECKOUT_PERSISTENCE_PROVIDER  = "redis"
         RETAIL_CHECKOUT_PERSISTENCE_REDIS_URL = "rediss://${local.infra.redis_endpoint}"
-        RETAIL_CHECKOUT_ENDPOINTS_ORDERS      = "http://orders"
+        RETAIL_CHECKOUT_ENDPOINTS_ORDERS      = "http://orders:8080"
       }
     }
     orders = {

@@ -92,7 +92,7 @@ VPC CIDR の先頭から `cidrsubnet(vpc_cidr, 4, 0..5)` を使うため、重�
 - `demo/`: 独自の React / Node.js デモと npm lockfile
 - `tests/`: AWS を呼ばないテスト、テンプレート検証用 fixture
 
-Terraform は同梱ソースを ZIP にし、apply 時に非公開 S3 にアップロードします。EC2 は自身の IAM Role で対応する 1 個のアーカイブを読み込み、`npm ci --ignore-scripts` とビルドを実行します。ZIP のキーは内容の SHA-256 を含むため、ソース変更が Launch Template の更新に反映されます。`node_modules` / `dist` / `.env` はアーカイブ対象外です。
+Terraform は同梱ソースを ZIP にし、apply 時に非公開 S3 にアップロードします。EC2 は自身の IAM Role で対応する 1 個のアーカイブを読み込み、`npm ci --ignore-scripts` とビルドを実行します。ZIP のキーは内容の SHA-256 を含むため、ソース変更が Launch Template の更新に反映されます。`artifacts-iam.tf` の `artifact_files` に列挙した各 4 ファイルだけを含め、ディレクトリ全体は梱包しません。`.npmrc`、秘密鍵、`.env`、依存キャッシュ等のローカルファイルを自動混入させないためです。アプリのファイルを追加したときは、この許可リストとテストもレビューして更新してください。許可したソースファイル自体にも秘密を記入しないでください。
 
 ## 4. 設定・確認・実行手順
 
@@ -109,10 +109,10 @@ terraform test
 
 必須の編集:
 
-1. `allowed_client_cidrs` を実際の接続元グローバル IPv4 `/32` 等に変更する。例の `203.0.113.10/32` は文書用アドレスなので、そのままでは自分の PC からアクセスできません。
+1. `allowed_client_cidrs` を実際の接続元グローバル IPv4 `/32` 等に変更する。例の `203.0.113.10/32` は文書用アドレスなので、そのままでは自分の PC からアクセスできません。全世界向け `/0` は入力エラーになります。複数の広い CIDR に分けても安全にはならないため、実際の接続元に絞ってください。
 2. `name` と `tags.Owner` を環境ごとに設定する。
 3. 希望するリージョン・2 AZ・台数・インスタンスサイズを確認する。
-4. 本番用途なら、同リージョンの既存 ACM 証明書 ARN を設定し、その証明書に一致するドメインの DNS Alias / CNAME を外部 ALB に向ける。証明書と DNS レコード自体はこの例では作成しません。
+4. 同リージョンの既存 ACM 証明書 ARN を設定し、その証明書に一致するドメインの DNS Alias / CNAME を外部 ALB に向ける。証明書と DNS レコード自体はこの例では作成しません。一時的な HTTP デモだけは `allow_insecure_http = true` で明示的に許可できます（例の tfvars はこの設定）。変数の既定値は `false` なので、証明書も明示許可もない構成は拒否します。HTTPS で使う際は例の値を `false` に戻してください。
 
 実際のアカウントを選んだ後に:
 
@@ -168,7 +168,8 @@ ASG の `desired_capacity` はスケーリングと競合しないよう Terrafo
 - RDS が管理する DB パスワードを Secrets Manager に保存。Terraform はパスワード値を入力・出力・取得せず、ARN のみ扱います。App が実行時に値を取得し、メモリーに短時間キャッシュします。認証失敗時は再取得を 1 回試します。
 - DB は TLS 必須。アプリは RDS CA とホスト名を検証します。パスワードを起動スクリプト、ログ、tfvars に埋め込みません。
 - **学習用の簡略化として App は管理ユーザーで固定 SELECT を実行します。** 本番では専用の最小権限 DB ユーザーとその認証方式に置き換えてください。Web の IAM Role に DB Secret 読み取り権限はありません。
-- ACM 証明書を未指定の場合は **HTTP のみ**。認証、WAF、rate limit、ALB アクセスログ、VPC Flow Logs、監視アラーム、アプリログの集中収集、専用の Secrets Manager / SSM VPC Endpoint は未追加です。本番運用の完成品ではありません。
+- ACM 証明書を未指定の場合は `allow_insecure_http = true` の明示許可が必要で、**HTTP のみ**です。HTTP では盗聴・改ざんを防げないので機密情報を扱わないでください。認証、WAF、クライアント別 rate limit、ALB アクセスログ、VPC Flow Logs、監視アラーム、アプリログの集中収集、専用の Secrets Manager / SSM VPC Endpoint は未追加です。本番運用の完成品ではありません。
+- API はプロセスごとに DB 確認の同時処理を 8 件までに制限し、超過分はキューにためず `503` / `Retry-After: 1` を返します。`/healthz` は飽和中も DB を呼ばず応答します。これは小規模デモの過負荷対策であり、認証・WAF・全インスタンス共通の流量制限の代わりにはなりません。
 - 内部の ALB と EC2 間は HTTP です。組織の規定で内部暗号化が必要なら、内部 HTTPS / mTLS 等を別途設計してください。
 - DB バックアップ保持 7 日、ALB と DB の削除保護は既定で有効。ALB / ASG の 2 AZ 配置は障害耐性を高めますが、全ての障害で無停止になる保証ではありません。
 - state に管理パスワード値は入りませんが、識別子や構成を含みます。state / plan / tfvars を公開せず、共有運用では暗号化・アクセス制御・ロック付き remote backend を別途設定してください。
@@ -208,6 +209,19 @@ ASG の `desired_capacity` はスケーリングと競合しないよう Terrafo
 
 `tests/architecture.tftest.hcl` は AWS Provider を mock 化しています。ネットワーク境界、2 AZ / 台数、managed secret、暗号化、HTTPS 切替、不正入力を確認するテストを収録しています。通常の Terraform test に AWS 認証は不要ですが、Provider を起動できるローカル環境が必要です。
 
+### 2026-10-17 セキュリティ修正の再検証
+
+- `terraform fmt -check -recursive`: 成功
+- `node --test tests/*.test.mjs`: 7 件成功。DB 同時処理上限、過負荷中のヘルスチェック、成功・失敗後の処理枠解放を追加確認
+- `node --check demo/app/server.mjs` / `node --check demo/app/handler.mjs`: 成功
+- Web / App の `npm ci --ignore-scripts`（App は `--omit=dev`）と React / esbuild 本番ビルド: 成功
+- 実テンプレートの Terraform 評価と `bash -n`: Web / App とも成功
+- Web / App 両方の `npm audit --package-lock-only --ignore-scripts`: 既知脆弱性 0 件（監査時点。将来の安全性を保証するものではありません）
+- Terraform mock テストに、ZIP の許可ファイル、全世界向け CIDR・不正 CIDR・IPv6・空リストの拒否、HTTP 明示許可を追加
+- `variables.tf` をそのままコピーした Provider 不要の一時 fixture: 接続元 CIDR と HTTP 安全既定値の 6 ケース成功
+- `terraform validate` / `terraform test`: Provider 起動時の IPC 制限で完了できず。上の Terraform 回帰テストは Provider を起動できる環境で確認が必要
+- 実 AWS の plan / apply、実 DB 疎通は未実施
+
 ## 8. 参照した一次情報
 
 - [AWS Three Tier Web Architecture Workshop](https://github.com/aws-samples/aws-three-tier-web-architecture-workshop): 図のベースである Nginx / React → 内部 ALB → Node.js → Aurora の対応を確認
@@ -217,3 +231,5 @@ ASG の `desired_capacity` はスケーリングと競合しないよう Terrafo
 - [Aurora と Secrets Manager](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/rds-secrets-manager.html)
 - [RDS CA 証明書](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html)
 - [Terraform 公式インストール](https://developer.hashicorp.com/terraform/install)
+- [HashiCorp Archive Provider / archive_file](https://registry.terraform.io/providers/hashicorp/archive/latest/docs/data-sources/file): 明示したファイルだけを `source` ブロックで梱包
+- [AWS VPC Security groups](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html): 必要な接続元だけへの受信制限

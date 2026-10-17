@@ -6,6 +6,7 @@ mock_provider "aws" {
 }
 variables {
   allowed_client_cidrs = ["203.0.113.10/32"]
+  allow_insecure_http  = true
 }
 run "two_az_security_baseline" {
   command = plan
@@ -37,14 +38,26 @@ run "two_az_security_baseline" {
     condition     = length(aws_lb_listener.https) == 0 && aws_lb_listener.http.default_action[0].type == "forward"
     error_message = "No certificate means the explicitly documented HTTP demo mode."
   }
+  assert {
+    condition     = toset([for source in data.archive_file.demo["web"].source : source.filename]) == toset(["app.jsx", "index.html", "package.json", "package-lock.json"]) && toset([for source in data.archive_file.demo["app"].source : source.filename]) == toset(["handler.mjs", "server.mjs", "package.json", "package-lock.json"])
+    error_message = "Artifacts must contain only reviewed demo files, never local credentials or arbitrary directory contents."
+  }
 }
 run "optional_https" {
   command = plan
-  variables { certificate_arn = "arn:aws:acm:ap-northeast-1:123456789012:certificate/12345678-1234-1234-1234-123456789012" }
+  variables {
+    certificate_arn     = "arn:aws:acm:ap-northeast-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+    allow_insecure_http = false
+  }
   assert {
     condition     = length(aws_lb_listener.https) == 1 && aws_lb_listener.http.default_action[0].type == "redirect"
     error_message = "A supplied ACM certificate must enable HTTPS and redirect HTTP."
   }
+}
+run "reject_implicit_http" {
+  command = plan
+  variables { allow_insecure_http = false }
+  expect_failures = [aws_lb_listener.http]
 }
 run "reject_single_az" {
   command = plan
@@ -55,4 +68,29 @@ run "reject_insufficient_capacity" {
   command = plan
   variables { asg_capacity = { min = 1, desired = 1, max = 2 } }
   expect_failures = [var.asg_capacity]
+}
+run "reject_unrestricted_clients" {
+  command = plan
+  variables { allowed_client_cidrs = ["0.0.0.0/0"] }
+  expect_failures = [var.allowed_client_cidrs]
+}
+run "reject_unrestricted_clients_with_host_bits" {
+  command = plan
+  variables { allowed_client_cidrs = ["203.0.113.10/0"] }
+  expect_failures = [var.allowed_client_cidrs]
+}
+run "reject_invalid_client_cidr" {
+  command = plan
+  variables { allowed_client_cidrs = ["not-a-cidr"] }
+  expect_failures = [var.allowed_client_cidrs]
+}
+run "reject_ipv6_clients" {
+  command = plan
+  variables { allowed_client_cidrs = ["::/0"] }
+  expect_failures = [var.allowed_client_cidrs]
+}
+run "reject_empty_clients" {
+  command = plan
+  variables { allowed_client_cidrs = [] }
+  expect_failures = [var.allowed_client_cidrs]
 }

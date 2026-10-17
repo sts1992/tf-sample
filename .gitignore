@@ -21,6 +21,15 @@ terraform.rc
 .env
 .env.*
 !.env.example
+.npmrc
+.pypirc
+.netrc
+.aws/
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
 node_modules/
 dist/
 build/

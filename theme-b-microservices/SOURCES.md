@@ -46,3 +46,13 @@
   - 秘密鍵・ユーザー証明書ではありません。AWS が更新する公開 CA bundle です。
 
 Retail Store のソースとコンテナは upstream の [MIT-0 License](https://github.com/aws-containers/retail-store-sample-app/blob/v1.6.3/LICENSE) および各依存ソフトのライセンスに従います。
+
+## 2026-10-17 セキュリティ見直し
+
+- [VPC CNI NetworkPolicy 有効化と standard / strict mode](https://docs.aws.amazon.com/eks/latest/userguide/cni-network-policy-configure.html)
+- [VPC CNI NetworkPolicy 制約](https://docs.aws.amazon.com/eks/latest/userguide/cni-network-policy.html): Linux EC2、Service/container port 一致、controller 管理 Pod 等。
+- [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/): namespace / Pod selector、加算的許可、node 通信等の制約。
+- [Kubernetes provider v3.3.0 NetworkPolicy schema](https://github.com/hashicorp/terraform-provider-kubernetes/blob/v3.3.0/docs/resources/network_policy_v1.md)
+- [ioredis connection URL](https://github.com/redis/ioredis#connect-to-redis): TLS と user/password 付き URL の形式。Checkout v1.6.3 は上記公式実装で new Redis(url) を使用。
+- [ElastiCache RBAC](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/Clusters.RBAC.html) / [Secrets Manager による rotation](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/User-Secrets-Manager.html)
+- [Orders Flyway 設定](https://github.com/aws-containers/retail-store-sample-app/blob/v1.6.3/src/orders/src/main/resources/application.yml)。Catalog config と repository、Checkout config と Redis repository も同版で再確認。

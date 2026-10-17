@@ -29,18 +29,23 @@ variable "vpc_cidr" {
   }
 }
 variable "allowed_client_cidrs" {
-  description = "IPv4 source networks allowed to reach the public ALB; set your real public IP /32. No default is intentionally provided."
+  description = "IPv4 source networks allowed to reach the public ALB; set your real public IP /32. Unrestricted /0 is rejected because this demo has no authentication."
   type        = set(string)
   validation {
-    condition     = length(var.allowed_client_cidrs) > 0 && alltrue([for c in var.allowed_client_cidrs : can(cidrnetmask(c))])
-    error_message = "Supply at least one valid IPv4 CIDR."
+    condition     = length(var.allowed_client_cidrs) > 0 && alltrue([for c in var.allowed_client_cidrs : can(cidrnetmask(c)) && try(tonumber(split("/", c)[1]) > 0, false)])
+    error_message = "Supply at least one valid, restricted IPv4 CIDR (prefer your public IP /32). Unrestricted /0 access is not allowed."
   }
 }
 variable "certificate_arn" {
-  description = "Optional existing ACM certificate in this region. Null enables HTTP-only demo mode."
+  description = "Existing ACM certificate in this region. Null requires explicit allow_insecure_http for a temporary HTTP-only demo."
   type        = string
   default     = null
   nullable    = true
+}
+variable "allow_insecure_http" {
+  description = "Explicit opt-in for a temporary, CIDR-restricted HTTP demo without an ACM certificate. Never use with sensitive data."
+  type        = bool
+  default     = false
 }
 variable "ami_id" {
   description = "Optional pinned Amazon Linux 2023 x86_64 AMI; null resolves the public AWS SSM latest AMI parameter."

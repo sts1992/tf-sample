@@ -4,6 +4,9 @@ availability_zones = ["ap-northeast-1a", "ap-northeast-1c"]
 vpc_cidr           = "10.10.0.0/16"
 # REPLACE this documentation-only address with your actual current public IPv4 /32.
 allowed_client_cidrs = ["203.0.113.10/32"]
+# Explicit opt-in for this temporary, restricted HTTP demo only.
+# Use an ACM certificate and false for HTTPS; never send sensitive data over HTTP.
+allow_insecure_http = true
 web_instance_type   = "t3.small"
 app_instance_type   = "t3.small"
 asg_capacity        = { min = 2, desired = 2, max = 4 }

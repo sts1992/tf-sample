@@ -6,6 +6,9 @@ output "deployment" {
     namespace             = local.namespace
     vpc_id                = aws_vpc.this.id
     public_subnet_ids     = [for s in aws_subnet.public : s.id]
+    public_subnet_cidrs   = [for s in aws_subnet.public : s.cidr_block]
+    data_subnet_cidrs     = [for s in aws_subnet.data : s.cidr_block]
+    vpc_cidr              = aws_vpc.this.cidr_block
     alb_security_group_id = aws_security_group.alb.id
     cluster_endpoint      = aws_eks_cluster.this.endpoint
     cluster_ca            = aws_eks_cluster.this.certificate_authority[0].data

@@ -1,4 +1,9 @@
-# HTTP-only demo if certificate_arn/hostname are empty. Optional HTTPS settings below.
+# Choose HTTPS before deployment. Same-region ACM certificate and matching DNS are required.
 replicas = 1
 # certificate_arn = "arn:aws:acm:ap-northeast-1:123456789012:certificate/REPLACE-ME"
 # hostname = "shop.example.com"
+
+# Explicit alternative for a disposable HTTP demo with synthetic data only.
+# Leave false for HTTPS. Never enter real personal, payment or authentication data.
+allow_insecure_http = false
+# allow_insecure_http = true
