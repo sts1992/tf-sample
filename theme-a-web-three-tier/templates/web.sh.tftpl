@@ -1,0 +1,55 @@
+#!/bin/bash
+set -euo pipefail
+# No credentials are embedded. EC2 obtains temporary credentials from its instance role.
+retry() { for attempt in $(seq 1 10); do "$@" && return 0; sleep 15; done; return 1; }
+retry dnf install -y nginx nodejs22 nodejs22-npm unzip
+command -v aws >/dev/null || retry dnf install -y awscli2
+install -d /opt/three-tier-web
+retry aws s3 cp '${artifact_uri}' /tmp/web.zip --region '${region}'
+unzip -oq /tmp/web.zip -d /opt/three-tier-web
+cd /opt/three-tier-web
+retry npm-22 ci --ignore-scripts --no-audit --no-fund
+mkdir -p dist
+/usr/bin/node-22 node_modules/esbuild/bin/esbuild app.jsx --bundle --minify --outfile=dist/app.js --define:process.env.NODE_ENV='"production"'
+cp index.html dist/index.html
+# Replace the packaged default server so our / and /api routes are authoritative.
+cat > /etc/nginx/nginx.conf <<'NGINX'
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /run/nginx.pid;
+events { worker_connections 1024; }
+http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  server_tokens off;
+  access_log /var/log/nginx/access.log;
+  sendfile on;
+  keepalive_timeout 65;
+  # Variable proxy_pass plus resolver refreshes ALB DNS instead of pinning old IPs.
+  resolver ${resolver} valid=30s ipv6=off;
+  server {
+    listen 80 default_server;
+    server_name _;
+    root /opt/three-tier-web/dist;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    location = /healthz { access_log off; default_type text/plain; return 200 'ok\n'; }
+    location /api/ {
+      set $api_backend '${internal_host}';
+      proxy_pass http://$api_backend$request_uri;
+      proxy_http_version 1.1;
+      proxy_set_header Host $api_backend;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_connect_timeout 5s;
+      proxy_read_timeout 15s;
+    }
+    location / { try_files $uri $uri/ /index.html; }
+  }
+}
+NGINX
+chmod -R a+rX /opt/three-tier-web/dist
+nginx -t
+systemctl enable --now nginx
+systemctl restart nginx
+systemctl enable --now amazon-ssm-agent

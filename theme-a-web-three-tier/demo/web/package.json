@@ -1,0 +1,7 @@
+{
+  "name": "theme-a-demo-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {"build": "esbuild app.jsx --bundle --minify --outfile=dist/app.js --define:process.env.NODE_ENV=\\\"production\\\""},
+  "dependencies": {"react": "19.3.0", "react-dom": "19.3.0", "esbuild": "0.28.2"}
+}

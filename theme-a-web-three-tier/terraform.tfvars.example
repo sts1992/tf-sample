@@ -1,0 +1,19 @@
+name               = "theme-a"
+aws_region         = "ap-northeast-1"
+availability_zones = ["ap-northeast-1a", "ap-northeast-1c"]
+vpc_cidr           = "10.10.0.0/16"
+# REPLACE this documentation-only address with your actual current public IPv4 /32.
+allowed_client_cidrs = ["203.0.113.10/32"]
+web_instance_type   = "t3.small"
+app_instance_type   = "t3.small"
+asg_capacity        = { min = 2, desired = 2, max = 4 }
+db_instance_class   = "db.t4g.medium"
+# Pin an available version from the reviewed plan for reproducibility.
+# db_engine_version = "<selected_db_engine_version>"
+# ami_id             = "ami-<verified-al2023-x86_64-id>"
+# Existing ACM certificate, in this region; configure matching DNS separately.
+# certificate_arn = "arn:aws:acm:ap-northeast-1:123456789012:certificate/<id>"
+deletion_protection       = true
+skip_final_snapshot       = false
+final_snapshot_identifier = "theme-a-final-001"
+tags = { Environment = "training", Owner = "replace-me" }

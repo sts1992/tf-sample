@@ -1,0 +1,10 @@
+region = "ap-northeast-1"
+name = "retail-demo"
+# Replace all examples. Use the IAM role behind your AWS SSO/profile, not an STS session ARN.
+admin_principal_arn = "arn:aws:iam::123456789012:role/TerraformOperator"
+admin_cidrs = ["198.51.100.10/32"]
+client_cidrs = ["198.51.100.10/32"]
+# Low-cost demo defaults, not production HA.
+single_nat_gateway = true
+db_multi_az = false
+deletion_protection = true

@@ -1,0 +1,48 @@
+#!/bin/bash
+set -euo pipefail
+retry() { for attempt in $(seq 1 10); do "$@" && return 0; sleep 15; done; return 1; }
+retry dnf install -y nodejs22 nodejs22-npm unzip
+command -v aws >/dev/null || retry dnf install -y awscli2
+id demoapp >/dev/null 2>&1 || useradd --system --home-dir /opt/three-tier-app --shell /sbin/nologin demoapp
+install -d /opt/three-tier-app
+retry aws s3 cp '${artifact_uri}' /tmp/app.zip --region '${region}'
+unzip -oq /tmp/app.zip -d /opt/three-tier-app
+cd /opt/three-tier-app
+retry npm-22 ci --omit=dev --ignore-scripts --no-audit --no-fund
+# RDS CA bundle is public; TLS is verified, never disabled.
+retry curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o rds-ca.pem
+chmod -R a+rX /opt/three-tier-app
+cat > /etc/three-tier-app.env <<'ENV'
+AWS_REGION=${region}
+DB_SECRET_ARN=${secret_arn}
+DB_WRITER_HOST=${writer_host}
+DB_READER_HOST=${reader_host}
+DB_NAME=demo
+DB_CA=/opt/three-tier-app/rds-ca.pem
+PORT=3000
+ENV
+chmod 600 /etc/three-tier-app.env
+cat > /etc/systemd/system/three-tier-app.service <<'UNIT'
+[Unit]
+Description=Independent three-tier Node.js demonstration API
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=demoapp
+Group=demoapp
+WorkingDirectory=/opt/three-tier-app
+EnvironmentFile=/etc/three-tier-app.env
+ExecStart=/usr/bin/node-22 /opt/three-tier-app/server.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now three-tier-app
+systemctl enable --now amazon-ssm-agent
