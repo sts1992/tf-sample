@@ -32,6 +32,7 @@ NetworkPolicy や同時実行上限は、認証・認可、WAF、DDoS 対策、�
 
 ## 検証の境界
 
+- CI 再確認（2026-10-17）: [main の GitHub Actions run 39032652841](https://github.com/sts1992/tf-sample/actions/runs/39032652841) で、commit `21b69aeee33b7286f1dfee1bb6f134ed8408940f` の全 5 job が成功。全 4 root の Terraform 整形・初期化・`validate`、A の AWS mock テスト・API 単体テスト・Node 構文、B の静的検査・mutation 回帰テスト・shell 構文を確認しました。実 AWS 環境での動作確認ではありません。
 - ローカル再検査: 全 Terraform の `fmt -check -recursive`、A の API 7 テスト、Node 構文、B の静的検査と mutation 回帰テスト、shell 構文が成功。A の依存インストール・Web 本番ビルド・テンプレート評価も成功。
 - AWS の `plan` / `apply` / `destroy`、クラスタへの接続、Helm/Kubernetes への書込は行っていません。AWS リソースは作成・変更していません。
 - Terraform mock test は AWS provider を mock 化するものです。実際の AWS API、クォータ、権限、NetworkPolicy/ALB の通信、DB migration の成功は保証しません。
@@ -46,6 +47,6 @@ NetworkPolicy や同時実行上限は、認証・認可、WAF、DDoS 対策、�
 - [Checkout v1.6.3 Redis 接続](https://github.com/aws-containers/retail-store-sample-app/blob/v1.6.3/src/checkout/src/checkout/repositories/RedisCheckoutRepository.ts)
 - [EKS VPC CNI NetworkPolicy](https://docs.aws.amazon.com/eks/latest/userguide/cni-network-policy.html)
 - [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
-- [その他の公式参照元と同梱ファイル hash](theme-b-microservices/SOURCES.md)
+- [その他の公式参照元と同梱ファイル hash](../theme-b-microservices/SOURCES.md)
 
 この変更を適用する前に、差分・plan・費用を担当者が確認してください。実環境での動作確認が終わるまで、実データや本番トラフィックを入れないでください。
