@@ -1,0 +1,10 @@
+**/.terraform/*
+**/terraform.tfstate*
+**/*.tfplan
+**/tfplan
+**/terraform.tfvars
+**/*.auto.tfvars*
+**/crash.log
+**/crash.*.log
+!**/.terraform.lock.hcl
+.research/

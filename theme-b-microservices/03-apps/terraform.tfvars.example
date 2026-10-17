@@ -1,0 +1,4 @@
+# HTTP-only demo if certificate_arn/hostname are empty. Optional HTTPS settings below.
+replicas = 1
+# certificate_arn = "arn:aws:acm:ap-northeast-1:123456789012:certificate/REPLACE-ME"
+# hostname = "shop.example.com"
