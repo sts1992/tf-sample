@@ -20,7 +20,7 @@ variable "replicas" {
   }
 }
 variable "certificate_arn" {
-  description = "Optional ACM certificate ARN in the same region; empty means HTTP-only demo."
+  description = "ACM certificate ARN in the same region. HTTP-only requires explicit allow_insecure_http opt-in."
   type        = string
   default     = ""
 }
@@ -28,4 +28,10 @@ variable "hostname" {
   description = "Optional hostname, required when using an ACM certificate. Create matching DNS separately."
   type        = string
   default     = ""
+}
+
+variable "allow_insecure_http" {
+  description = "Explicit opt-in to an HTTP-only disposable demo. Never enter real personal, payment or authentication data."
+  type        = bool
+  default     = false
 }

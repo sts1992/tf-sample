@@ -1,10 +1,23 @@
+# Only these reviewed files may be deployed. A directory-wide archive can silently
+# include local credentials (for example .npmrc, private keys or nested .env files).
+locals {
+  artifact_files = {
+    web = ["app.jsx", "index.html", "package.json", "package-lock.json"]
+    app = ["handler.mjs", "server.mjs", "package.json", "package-lock.json"]
+  }
+}
 # Source archives are uploaded by Terraform apply, never by the EC2 bootstrap.
 data "archive_file" "demo" {
   for_each    = local.tiers
   type        = "zip"
-  source_dir  = "${path.module}/demo/${each.key}"
   output_path = "${path.module}/${each.key}-artifact.zip"
-  excludes    = ["node_modules", "node_modules/**", "dist", "dist/**", ".env", ".env.*"]
+  dynamic "source" {
+    for_each = local.artifact_files[each.key]
+    content {
+      filename = source.value
+      content  = file("${path.module}/demo/${each.key}/${source.value}")
+    }
+  }
 }
 resource "aws_s3_bucket" "artifacts" {
   bucket_prefix = "${var.name}-artifacts-"

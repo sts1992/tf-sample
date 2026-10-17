@@ -32,7 +32,7 @@ flowchart TB
   ddb["DynamoDB / Cart データ"]
   sqs["SQS / Orders メッセージ"]
   secrets["Secrets Manager / RDS 管理パスワード"]
-  client -->|"HTTP / 任意の HTTPS"| alb
+  client -->|"HTTPS / HTTP は明示 opt-in"| alb
   alb -->|"UI Pod HTTP 8080"| ui
   ui --> catalog
   ui --> carts
@@ -52,7 +52,7 @@ flowchart TB
   eks -.->|"外向き AWS API / image pull"| nat
 ```
 
-実線は主なアプリの接続、点線は AWS API・管理・Secret 取得の論理接続です。NAT の先の Internet Gateway は省略しています。DynamoDB / SQS / Secrets Manager はリージョナルサービスで、Data subnet 内に置くサーバーではありません。ALB からは Ingress の `target-type=ip` により UI Pod に転送します。各サービスの内部通信は Kubernetes Service（80 → Pod 8080）を利用します。
+実線は主なアプリの接続、点線は AWS API・管理・Secret 取得の論理接続です。NAT の先の Internet Gateway は省略しています。DynamoDB / SQS / Secrets Manager はリージョナルサービスで、Data subnet 内に置くサーバーではありません。ALB からは Ingress の `target-type=ip` により UI Pod に転送します。各サービスの内部通信は Kubernetes Service（8080 → Pod 8080、VPC CNI NetworkPolicy の要件に合わせて同じポート）を利用します。
 
 既定ではアプリは各 1 replica で、5 サービスを各 AZ に 1 個ずつ配置する構成ではありません。MySQL / PostgreSQL もそれぞれ Single-AZ です。Catalog の DB 通信 TLS、Secret ローテーション後の Pod 再起動、その他の制約を必ず下記で確認してください。
 
@@ -70,21 +70,47 @@ flowchart TB
 これは本番向け完成基盤ではありません。特に次の点は意図的な簡略化です。
 
 1. **Catalog v1.6.3 は MySQL 接続の TLS 設定を持たないため、Catalog→MySQL は VPC 内でも非暗号化です。** 接続元を worker node の SG に限定し、RDS 保存時暗号化は有効ですが、通信暗号化の代替にはなりません。require_secure_transport=OFF を明示しています。本番利用前に Catalog を TLS 対応へ変更し、CA 検証と DB 側 TLS 強制を追加してください。
-2. Redis は TLS 必須 / 保存時暗号化 / 2 AZ の primary+replica ですが、サンプルでは AUTH/ACL 認証を設定していません。同じ node SG からの到達性を許す構成です。本番では認証・Pod 単位の分離を追加してください。
+2. **Redis は AUTH/ACL 未設定（高リスク）です。** TLS 必須 / 保存時暗号化 / 2 AZ と NetworkPolicy の Checkout→Data subnet:6379 制限を追加していますが、TLS はクライアント認証の代わりになりません。別 namespace や node/hostNetwork から同じ node SG で到達できるリスクが残ります。下記の本番化手順で認証を追加してください。
 3. PostgreSQL は rds.force_ssl=1。Orders の JDBC 接続には sslmode=verify-full と同梱の AWS RDS CA を渡します。CA の更新は運用者が管理してください。
-4. RDS の管理パスワードは AWS が生成して Secrets Manager に保存し、Pod 起動時に CSI が取得します。Terraform は秘密の値を読みません。ただしアプリが管理ユーザーを利用する学習用構成です。本番はマイグレーション用とアプリ用の最小権限ユーザーを分けてください。
+4. RDS の管理パスワードは AWS が生成して Secrets Manager に保存し、Pod 起動時に CSI が取得します。Terraform は秘密の値を読みません。ただし **アプリが管理ユーザーを利用するため、アプリ侵害時に DB 管理権限が漏れる高リスク** が残ります。起動時 migration があるため username だけを変える修正はできません。本番は下記の手順で migration と実行用の権限を分けてください。
 5. CSI は secret rotation と Kubernetes Secret 同期を有効にしていますが、**環境変数は自動更新されません**。RDS 管理パスワードの自動ローテーション後は Catalog / Orders の Pod 再起動が必要です。再起動自動化 / 設定の動的再読み込みは未実装です。ローテーションを放置すると再接続に失敗します。
-6. デフォルトは HTTP です。アクセス元 CIDR の指定が必須です。デモに個人情報・決済情報・本物の認証情報を入力しないでください。本番公開には ACM 証明書、DNS、認証、WAF、監視等が必要です。ACM ARN とホスト名を設定すると ALB HTTPS + HTTP→HTTPS リダイレクトになります。
+6. **証明書なしの HTTP は既定で拒否します。** ACM ARN とホスト名を設定すると ALB HTTPS + HTTP→HTTPS リダイレクトになります。廃棄可能なデモでのみ allow_insecure_http=true を明示できます。admin_cidrs / client_cidrs は /0 を拒否します（複数の広い CIDR を組み合わせた全公開を防ぐものではないため、実際の作業端末の狭い範囲に限定してください）。デモに個人情報・決済情報・本物の認証情報を入力しないでください。本番公開には認証、WAF、監視等も必要です。ALB→UI とサービス間は引き続き HTTP です。
 7. 低コスト寄りの設定として NAT は 1 台、RDS は Single-AZ、アプリは各 1 replica。ノード 2 台 / 2 AZ でもシステム全体が HA になるわけではありません。node の配置 AZ の実績も確認してください。
-8. node SG はアプリで共有し、NetworkPolicy / Security Groups for Pods は実装していません。Pod ごとの IAM は IRSA と ServiceAccount 条件で分離しています。ノードロールは EKS/CNI/ECR 用だけで、Cart の DynamoDB、Orders の SQS、DB secret の読み取りは専用 Pod ロールです。
+8. node SG は共有ですが、VPC CNI NetworkPolicy を有効にし、retail namespace で ingress/egress を既定拒否しています。必要な経路と残る制約は下記を参照してください。Security Groups for Pods は未実装です。Pod ごとの IAM は IRSA と ServiceAccount 条件で分離しています。ノードロールは EKS/CNI/ECR 用だけで、Cart の DynamoDB、Orders の SQS、DB secret の読み取りは専用 Pod ロールです。
 9. Orders は SQS へ送信するだけです。後続コンシューマー、DLQ / 再試行ワーカーは図にないため未実装。メッセージ保持期間は 4 日です。Cluster Autoscaler、HPA、アプリログ転送・アラームも未実装です。
+
+## 通信分離と残るセキュリティ上の制約
+
+NetworkPolicy は `03-apps/network-policies.tf`、適用エンジンは `01-infra/eks.tf` の VPC CNI add-on 設定です。retail の通信を既定拒否し、以下を追加許可します。
+
+- ALB の public subnet → UI: TCP 8080。node SG でも ALB SG に制限します。
+- UI → Catalog / Carts / Checkout / Orders、Checkout → Orders: TCP 8080。同じ namespace の app label で制限します。
+- アプリ → kube-system の CoreDNS: UDP/TCP 53。
+- Catalog / Orders / Checkout → isolated data subnet: それぞれ TCP 3306 / 5432 / 6379。フェイルオーバーで IP が変わるため subnet + port で制限します。
+- Carts / Orders → 外部 HTTPS: TCP 443。STS / DynamoDB / SQS の動的 IP に対応するため、VPC CIDR / link-local を除いた IPv4 宛を許可します。AWS だけの宛先制限ではなく、IAM の最小権限も必要です。
+
+kube-system の CSI Provider / Controller や node の image pull はこの namespace policy の対象外で、Secrets Manager への経路を保ちます。kubelet probe など自分の node からの通信も NetworkPolicy の分離境界ではありません。
+
+VPC CNI は **standard mode** のため、Pod 起動後、ポリシー反映まで一時的に通信が許可されます。Deployment の依存関係で policy リソースを先に作成しても、この反映待ち時間はなくなりません。strict mode は CoreDNS などシステム Pod にも別途許可 policy が必要なので、この変更で安易に切り替えていません。また他 namespace、hostNetwork、ノード侵害を含む完全な境界ではありません。本番では strict mode と全システム経路の設計・検証、Security Groups for Pods、Pod 作成/label 変更権限の制限、適切な admission 制御を追加してください。
+
+本番化に向けて残る対応（この変更では秘密の発行や DB/Redis の実操作をしていません）:
+
+1. **Catalog MySQL の TLS / CA 検証（高）:** v1.6.3 の config/DSN に対応がないことを公式ソースで確認済み。TLS 設定を追加した検証済みイメージを作り、CA と hostname を検証して接続できることを確認後、require_secure_transport=ON にします。DB 側だけを ON にすると既存 Catalog は接続できません。
+2. **Redis AUTH/ACL（高）:** Checkout は ioredis に URL を渡すので認証付き URL は利用可能ですが、この構成には認証 Secret の供給/rotation がありません。既定の無認証 user を無効化し、アプリ用 ACL の key/コマンド権限を定義し、Secrets Manager/CSI 経由で認証付き rediss URL を渡して接続・rotation を検証してください。URL/パスワードを Terraform の env、tfvars、state、ログに直接書かないでください。単に auth_token だけ設定する変更は接続断になります。
+3. **DB 実行ユーザーの分離（高）:** Catalog は起動時 AutoMigrate と seed 書き込み、Orders は Flyway を使用します。まず migration を専用権限/実行段階へ分離し、その後 runtime に必要な schema/table 操作のみを付与したユーザーを作成します。アプリ専用 Secret と IRSA 読み取り先を切り替えて確認後、管理 Secret をアプリが取得できないようにしてください。Terraform は SQL ユーザーや秘密値の作成・取得をしません。
+
+## 既存構成からの更新
+
+01-infra → 02-platform → 03-apps の順を維持してください。03-apps は新しい subnet CIDR outputs を参照するため、01-infra の apply 前に新しい 03-apps を plan すると失敗します。02-platform のコード変更はありません。HTTP 利用中の場合も allow_insecure_http=true の明示か HTTPS 設定が必要です。
+
+内部 Service port を 80 から 8080 へ統一しています。アプリ URL と Ingress backend は同時に更新していますが、Service 更新と Pod rollout の途中では一時的な疎通断があり得ます。デモ停止が可能な時間に実施し、独自の probe / port-forward / 呼出元があれば 8080 へ修正してください。
 
 ## 構成と適用順
 
 ```
 01-infra/     VPC、subnet、NAT、EKS、IAM、RDS、Redis、DynamoDB、SQS
 02-platform/  ALB Controller、Secrets Store CSI Driver、AWS Provider
-03-apps/      Namespace、ServiceAccount、SecretProviderClass、5サービス、Ingress
+03-apps/      Namespace、ServiceAccount、SecretProviderClass、NetworkPolicy、5サービス、Ingress
 scripts/      ローカル検証と DB 利用 Pod の再起動補助
 ```
 
@@ -107,8 +133,10 @@ scripts/      ローカル検証と DB 利用 Pod の再起動補助
 cd theme-b-microservices
 export AWS_PROFILE=your-profile
 cp 01-infra/terraform.tfvars.example 01-infra/terraform.tfvars
+cp 03-apps/terraform.tfvars.example 03-apps/terraform.tfvars
 # terraform.tfvars のアカウントID、IAM ARN、admin_cidrs、client_cidrs を編集。
 # 198.51.100.10/32 は説明用の予約アドレスで、そのままでは接続できません。
+# 03-apps は certificate_arn と hostname を設定。HTTPデモのみ allow_insecure_http=true を明示。
 
 terraform -chdir=01-infra init
 terraform -chdir=01-infra fmt -check
@@ -140,9 +168,10 @@ terraform -chdir=03-apps output -raw store_url
 
 初回は EKS / RDS などの作成に時間がかかります。02/03 は admin_principal_arn と同じ IAM 身元で実行してください。aws eks update-kubeconfig はローカル kubeconfig を更新しますが、Terraform provider 自体は aws eks get-token を使ってトークンを都度取得します。
 
-HTTPS を使う場合、03-apps/terraform.tfvars を次のように設定します。同じリージョンの検証済み ACM 証明書が必要です。DNS の CNAME / Alias 登録は別作業です。
+推奨する HTTPS では、03-apps/terraform.tfvars を次のように設定します。同じリージョンの検証済み ACM 証明書が必要です。DNS の CNAME / Alias 登録は別作業です。
 
 ```hcl
+allow_insecure_http = false
 certificate_arn = "arn:aws:acm:ap-northeast-1:123456789012:certificate/REPLACE-ME"
 hostname        = "shop.example.com"
 replicas        = 2
@@ -158,6 +187,7 @@ replicas        = 2
 - Catalog/Orders が CreateContainerConfigError の場合、CSI volume の同期、IRSA の ServiceAccount・namespace・aud/sub 条件を確認。Terraform で secret 値を表示・埋め込む回避策は不要です。
 - IAM: Cart は自身のテーブルと GSI だけ、Orders は自身の queue と DB secret だけ。アプリによる DynamoDB table 再作成は false に固定しています。
 - EKS API の 401/403 は access entry と AWS プロファイル、タイムアウトは admin_cidrs とネットワークを確認。
+- VPC CNI の aws-node が network-policy-agent を含めて Ready であること、kubectl -n retail get networkpolicy と policyendpoints.networking.k8s.aws を確認してください。実クラスタでは許可経路の注文 E2E に加え、UI→Redis、Catalog→Orders、別 namespace→アプリ等の禁止経路が拒否されることを別途検証してください。テスト用 Pod は Deployment/Job 配下で作成し、確認後に削除します。この納品では実施していません。
 - ALB が作成されないときは kubectl -n kube-system logs deployment/aws-load-balancer-controller と Ingress events を確認。
 - 秘密のローテーション後に CSI が更新されるのを確認したうえで、scripts/restart-db-workloads.sh を実行すると Catalog / Orders の環境変数を更新できます。これにはクラスタへの変更権限が必要です。
 
@@ -196,7 +226,7 @@ terraform -chdir=01-infra destroy
 
 ## 検証結果と根拠
 
-検証日: 2026-10-14。詳細は [VALIDATION.md](VALIDATION.md)、公式ソースへのリンクは [SOURCES.md](SOURCES.md)。
+初期検証日: 2026-10-14、セキュリティ変更の静的再検証日: 2026-10-17。詳細は [VALIDATION.md](VALIDATION.md)、公式ソースへのリンクは [SOURCES.md](SOURCES.md)。
 
 - Terraform fmt は実行し、全 root の HCL は Terraform init で読み込めています。
 - 3 root の init -backend=false は公式署名付き provider を取得して成功。lock file を同梱。

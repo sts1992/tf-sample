@@ -41,3 +41,14 @@ Terraform fmt と init で構文は読み込まれていますが、属性の pr
 - Secret rotation / フェイルオーバー / 負荷・性能・可用性・侵入テスト
 
 今回の納品物を「本番利用可能」「実AWSでデプロイ検証済み」とみなさないでください。
+
+## 2026-10-17 セキュリティ変更の再検証
+
+- Terraform CLI 1.16.5: `fmt -check -recursive` 成功。
+- `python3 scripts/check-static.py`: 41 項目 PASS。CNI enforcement、retail 既定拒否、DNS、各アプリ・data・AWS HTTPS の選択条件、Service/Pod/Ingress port 整合、HTTP opt-in、/0 CIDR 拒否を含みます。
+- `python3 scripts/test-security.py`: 3 テスト成功。現在の 21 セキュリティ条件と、制御を取り除く 15 種類の mutation が検出されること、コメント/文字列内の括弧処理を確認しました。
+- `bash -n scripts/verify-local.sh scripts/restart-db-workloads.sh` 成功。
+- 公式 v1.6.3 アプリ実装、AWS VPC CNI の要件、Kubernetes provider 3.3.0 の NetworkPolicy schema と照合しました。
+- 取得済み公式 provider の別ディレクトリを TF_DATA_DIR に指定して 3 root の validate を再試行しましたが、provider の `listen unix /tmp/plugin…: socket: operation not permitted` を再現し、完全 validate は未完了です。ローカル schema 検証のみの実行権限で再試行しても完了しませんでした。
+
+これらはソースレベルのガードであり、Terraform provider schema 検証や通信シミュレーションではありません。AWS / EKS に接続せず、plan/apply、実際の NetworkPolicy 反映・ALB 到達性・DB/Redis 接続・Secret rotation・注文処理は未実施です。変更コードには依存キャッシュ、state、plan、秘密値を含めていません。

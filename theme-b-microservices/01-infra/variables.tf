@@ -30,16 +30,16 @@ variable "admin_cidrs" {
   description = "Public IPv4 egress CIDRs of Terraform/kubectl operators. Also account for VPN egress."
   type        = list(string)
   validation {
-    condition     = length(var.admin_cidrs) > 0 && alltrue([for c in var.admin_cidrs : can(cidrnetmask(c)) && c != "0.0.0.0/0"])
+    condition     = length(var.admin_cidrs) > 0 && alltrue([for c in var.admin_cidrs : can(cidrnetmask(c)) && try(tonumber(split("/", c)[1]) > 0, false)])
     error_message = "Provide operator IPv4 CIDRs; 0.0.0.0/0 is intentionally disallowed."
   }
 }
 variable "client_cidrs" {
-  description = "Allowed IPv4 sources for the sample store ALB. Set 0.0.0.0/0 only if deliberate public exposure is acceptable."
+  description = "Allowed IPv4 sources for the unauthenticated sample store ALB. Use trusted ranges; /0 is disallowed."
   type        = list(string)
   validation {
-    condition     = length(var.client_cidrs) > 0 && alltrue([for c in var.client_cidrs : can(cidrnetmask(c))])
-    error_message = "Provide at least one valid IPv4 CIDR."
+    condition     = length(var.client_cidrs) > 0 && alltrue([for c in var.client_cidrs : can(cidrnetmask(c)) && try(tonumber(split("/", c)[1]) > 0, false)])
+    error_message = "Provide trusted IPv4 CIDRs with a prefix greater than zero; /0 is disallowed."
   }
 }
 variable "kubernetes_version" {

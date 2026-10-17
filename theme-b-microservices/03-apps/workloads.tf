@@ -123,7 +123,13 @@ resource "kubernetes_deployment_v1" "app" {
     create = "15m"
     update = "15m"
   }
-  depends_on = [kubernetes_manifest.db_secrets, kubernetes_service_v1.app]
+  depends_on = [
+    kubernetes_manifest.db_secrets, kubernetes_service_v1.app,
+    kubernetes_network_policy_v1.default_deny, kubernetes_network_policy_v1.dns,
+    kubernetes_network_policy_v1.app_ingress, kubernetes_network_policy_v1.ui_ingress,
+    kubernetes_network_policy_v1.app_egress, kubernetes_network_policy_v1.data_egress,
+    kubernetes_network_policy_v1.aws_https,
+  ]
 }
 resource "kubernetes_service_v1" "app" {
   for_each = local.apps
@@ -135,8 +141,9 @@ resource "kubernetes_service_v1" "app" {
     type     = "ClusterIP"
     selector = { app = each.key }
     port {
-      name        = "http"
-      port        = 80
+      name = "http"
+      # VPC CNI NetworkPolicy requires Service and container ports to match.
+      port        = 8080
       target_port = 8080
     }
   }
@@ -172,7 +179,7 @@ resource "kubernetes_ingress_v1" "ui" {
           backend {
             service {
               name = kubernetes_service_v1.app["ui"].metadata[0].name
-              port { number = 80 }
+              port { number = 8080 }
             }
           }
         }
@@ -181,6 +188,10 @@ resource "kubernetes_ingress_v1" "ui" {
   }
   wait_for_load_balancer = true
   lifecycle {
+    precondition {
+      condition     = var.certificate_arn != "" || var.allow_insecure_http
+      error_message = "Configure certificate_arn and hostname for HTTPS, or explicitly set allow_insecure_http=true for a disposable demo with synthetic data only."
+    }
     precondition {
       condition     = var.certificate_arn == "" || var.hostname != ""
       error_message = "Set a hostname matching the ACM certificate and create its DNS record separately."

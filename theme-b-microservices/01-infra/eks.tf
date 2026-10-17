@@ -113,10 +113,15 @@ data "aws_eks_addon_version" "this" {
   most_recent        = true
 }
 resource "aws_eks_addon" "this" {
-  for_each                    = data.aws_eks_addon_version.this
-  cluster_name                = aws_eks_cluster.this.name
-  addon_name                  = each.key
-  addon_version               = each.value.version
+  for_each      = data.aws_eks_addon_version.this
+  cluster_name  = aws_eks_cluster.this.name
+  addon_name    = each.key
+  addon_version = each.value.version
+  # Standard mode keeps system add-ons bootable; see the startup-window limitation in README.
+  configuration_values = each.key == "vpc-cni" ? jsonencode({
+    enableNetworkPolicy = "true"
+    env                 = { NETWORK_POLICY_ENFORCING_MODE = "standard" }
+  }) : null
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
   depends_on                  = [aws_eks_node_group.this]

@@ -3,6 +3,7 @@
 from pathlib import Path
 import hashlib
 import json
+from security_checks import security_checks
 
 root = Path(__file__).resolve().parents[1]
 read = lambda p: (root / p).read_text()
@@ -35,6 +36,7 @@ for p, sha in expected.items():
     checks[f"SHA-256 {p}"] = hashlib.sha256((root / p).read_bytes()).hexdigest() == sha
 for stage in ("01-infra", "02-platform", "03-apps"):
     checks[f"provider lock {stage}"] = (root / stage / ".terraform.lock.hcl").is_file()
+checks.update(security_checks({str(p.relative_to(root)): p.read_text() for stage in ("01-infra", "03-apps") for p in (root / stage).glob("*.tf")}))
 for label, ok in checks.items():
     print(f"{'PASS' if ok else 'FAIL'} {label}")
 raise SystemExit(0 if all(checks.values()) else 1)

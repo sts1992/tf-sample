@@ -40,6 +40,12 @@ resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.external.arn
   port              = 80
   protocol          = "HTTP"
+  lifecycle {
+    precondition {
+      condition     = var.certificate_arn != null || var.allow_insecure_http
+      error_message = "Set an ACM certificate for HTTPS, or explicitly set allow_insecure_http = true for a temporary restricted demo."
+    }
+  }
   default_action {
     type             = var.certificate_arn == null ? "forward" : "redirect"
     target_group_arn = var.certificate_arn == null ? aws_lb_target_group.tier["web"].arn : null
